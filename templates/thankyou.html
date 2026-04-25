@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Interview Complete{% endblock %}
+
+{% block content %}
+<div class="text-center py-16">
+  <div class="text-6xl mb-6">&#10003;</div>
+  <h1 class="text-3xl font-bold text-gray-800 mb-3">Interview Complete</h1>
+  <p class="text-gray-600 text-lg mb-2">
+    Thank you, <strong>{{ interview.candidate_name }}</strong>.
+  </p>
+  <p class="text-gray-500">
+    Your responses have been submitted successfully.<br />
+    The interviewer will review your results shortly.
+  </p>
+  <p class="text-gray-400 text-sm mt-6">You may now close this window.</p>
+</div>
+{% endblock %}

@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}InterviewAssist{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body class="bg-gray-50 min-h-screen flex flex-col">
+
+  <header class="bg-blue-600 shadow-md">
+    <div class="max-w-3xl mx-auto px-4 py-4 flex items-center gap-3">
+      <span class="text-white text-2xl font-bold tracking-tight">InterviewAssist</span>
+      {% block header_right %}{% endblock %}
+    </div>
+  </header>
+
+  <main class="flex-1 max-w-3xl mx-auto w-full px-4 py-10">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="text-center text-gray-400 text-sm py-4">
+    InterviewAssist &mdash; AI-powered technical interviews
+  </footer>
+
+</body>
+</html>

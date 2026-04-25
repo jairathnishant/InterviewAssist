@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Interview — {{ interview.candidate_name }}{% endblock %}
+
+{% block content %}
+<div class="mb-8 text-center">
+  <h1 class="text-3xl font-bold text-gray-800">Welcome to Your Interview</h1>
+  <p class="text-gray-500 mt-2">
+    Hello <strong>{{ interview.candidate_name }}</strong>, you have been invited to complete
+    a technical interview for the <strong>{{ interview.role }}</strong> position.
+  </p>
+</div>
+
+<div class="bg-white border border-gray-200 rounded-xl p-6 shadow-sm mb-6">
+  <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-4">Before You Begin</h2>
+  <ul class="space-y-2 text-sm text-gray-700">
+    <li class="flex gap-3"><span class="text-blue-500 font-bold">&#10003;</span> Find a quiet, well-lit location</li>
+    <li class="flex gap-3"><span class="text-blue-500 font-bold">&#10003;</span> Allow <strong>30&ndash;40 minutes</strong> of uninterrupted time</li>
+    <li class="flex gap-3"><span class="text-blue-500 font-bold">&#10003;</span> There are <strong>9 questions</strong> covering technical knowledge, your experience, and problem-solving</li>
+    <li class="flex gap-3"><span class="text-blue-500 font-bold">&#10003;</span> Type your answers &mdash; quality matters more than speed</li>
+    <li class="flex gap-3"><span class="text-blue-500 font-bold">&#10003;</span> Answer honestly and independently &mdash; the interview is AI-assessed</li>
+  </ul>
+</div>
+
+{% if request.query_params.get('error') %}
+<div class="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 mb-4 text-sm">
+  {{ request.query_params.get('error') }}
+</div>
+{% endif %}
+
+<form method="post" action="/c/{{ interview.token }}/start" id="start-form">
+  <button type="submit" id="start-btn"
+    class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg transition-colors text-base">
+    Begin Interview &rarr;
+  </button>
+</form>
+
+<p class="text-center text-xs text-gray-400 mt-4">
+  Your first question will be generated when you click &ldquo;Begin Interview&rdquo;. This takes a few seconds.
+</p>
+
+<script>
+document.getElementById('start-form').addEventListener('submit', function() {
+  const btn = document.getElementById('start-btn');
+  btn.disabled = true;
+  btn.textContent = 'Preparing your interview\u2026';
+  btn.classList.add('opacity-75', 'cursor-not-allowed');
+});
+</script>
+{% endblock %}

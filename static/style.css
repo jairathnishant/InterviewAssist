@@ -1,0 +1,16 @@
+.type-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 9999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: white;
+}
+.type-technical  { background-color: #2563EB; }
+.type-project    { background-color: #7C3AED; }
+.type-behavioral { background-color: #059669; }
+.type-coding     { background-color: #D97706; }
+
+details > summary { list-style: none; }
+details > summary::-webkit-details-marker { display: none; }
