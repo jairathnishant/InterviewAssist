@@ -2,10 +2,12 @@ import json
 import logging
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Optional
 
 import openai
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request, Form, HTTPException
+from fastapi import FastAPI, Request, Form, File, UploadFile, HTTPException
 
 logging.basicConfig(
     level=logging.INFO,
@@ -239,12 +241,18 @@ async def question_page(request: Request, token: str, n: int, error: str = ""):
     if not question:
         raise HTTPException(status_code=404, detail="Question not found.")
 
+    answers = db.get_answers_for_interview(interview["id"])
+    answered_indices = {a["order_index"] for a in answers}
+    existing_answer = next((a for a in answers if a["order_index"] == n - 1), None)
+
     return _render(request, "interview.html", {
         "interview": interview,
         "question": question,
         "question_number": n,
         "total_questions": 9,
         "progress_pct": int((n - 1) / 9 * 100),
+        "answered_indices": answered_indices,
+        "existing_answer": existing_answer,
         "error": error,
     })
 
@@ -254,17 +262,32 @@ async def submit_answer(
     request: Request,
     token: str,
     n: int,
-    answer_text: str = Form(...),
+    answer_text: str = Form(""),
+    audio_file: Optional[UploadFile] = File(None),
 ):
     interview = db.get_interview_by_token(token)
     if not interview or n < 1 or n > 9:
         raise HTTPException(status_code=404)
 
-    if len(answer_text.strip()) < 20:
-        return RedirectResponse(
-            f"/c/{token}/q/{n}?error=Please+provide+a+more+detailed+answer+(at+least+20+characters).",
-            status_code=303,
-        )
+    # ── Determine answer text and optional audio path ──────────────────────
+    audio_path: Optional[str] = None
+    is_audio = audio_file and audio_file.size and audio_file.size > 0
+
+    if is_audio:
+        audio_dir = Path("audio") / interview["id"]
+        audio_dir.mkdir(parents=True, exist_ok=True)
+        audio_path = str(audio_dir / f"q{n}.webm")
+        content = await audio_file.read()
+        Path(audio_path).write_bytes(content)
+        saved_text = "[transcription pending]"
+        log.info("Audio saved: %s (%d bytes)", audio_path, len(content))
+    else:
+        saved_text = answer_text.strip()
+        if len(saved_text) < 20:
+            return RedirectResponse(
+                f"/c/{token}/q/{n}?error=Please+provide+a+more+detailed+answer+(at+least+20+characters).",
+                status_code=303,
+            )
 
     question = db.get_question(interview["id"], order_index=n - 1)
     if not question:
@@ -274,7 +297,8 @@ async def submit_answer(
         interview_id=interview["id"],
         question_id=question["id"],
         order_index=n - 1,
-        answer_text=answer_text.strip(),
+        answer_text=saved_text,
+        audio_file_path=audio_path,
     )
 
     if n < 9:
@@ -286,6 +310,19 @@ async def submit_answer(
         except Exception:
             pass
         return RedirectResponse(f"/c/{token}/done", status_code=303)
+
+
+@app.post("/c/{token}/finish")
+async def finish_interview(request: Request, token: str):
+    interview = db.get_interview_by_token(token)
+    if not interview:
+        raise HTTPException(status_code=404)
+    db.update_interview_status(interview["id"], "completed")
+    try:
+        _run_scoring(interview)
+    except Exception as e:
+        log.error("Scoring failed on manual finish for interview id=%s: %s", interview["id"], e, exc_info=True)
+    return RedirectResponse(f"/c/{token}/done", status_code=303)
 
 
 @app.get("/c/{token}/done", response_class=HTMLResponse)

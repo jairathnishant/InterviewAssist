@@ -49,11 +49,17 @@ def init_db() -> None:
                 question_id           TEXT NOT NULL REFERENCES questions(id),
                 order_index           INTEGER NOT NULL,
                 answer_text           TEXT NOT NULL DEFAULT '',
+                audio_file_path       TEXT,
                 score                 REAL,
                 feedback              TEXT,
                 communication_clarity REAL
             );
         """)
+        # Migrate existing DB — safe no-op if column already exists
+        try:
+            conn.execute("ALTER TABLE answers ADD COLUMN audio_file_path TEXT")
+        except Exception:
+            pass
 
 
 def _row_to_dict(row) -> Optional[dict]:
@@ -207,19 +213,36 @@ def save_answer(
     question_id: str,
     order_index: int,
     answer_text: str,
+    audio_file_path: Optional[str] = None,
 ) -> dict:
-    row = {
-        "id": str(uuid.uuid4()),
-        "interview_id": interview_id,
-        "question_id": question_id,
-        "order_index": order_index,
-        "answer_text": answer_text,
-    }
     with get_connection() as conn:
+        existing = conn.execute(
+            "SELECT id FROM answers WHERE interview_id = ? AND order_index = ?",
+            (interview_id, order_index),
+        ).fetchone()
+        if existing:
+            conn.execute(
+                """UPDATE answers
+                   SET answer_text = ?, audio_file_path = ?
+                   WHERE id = ?""",
+                (answer_text, audio_file_path, existing["id"]),
+            )
+            return {"id": existing["id"], "interview_id": interview_id,
+                    "order_index": order_index, "answer_text": answer_text,
+                    "audio_file_path": audio_file_path}
+        row = {
+            "id": str(uuid.uuid4()),
+            "interview_id": interview_id,
+            "question_id": question_id,
+            "order_index": order_index,
+            "answer_text": answer_text,
+            "audio_file_path": audio_file_path,
+        }
         conn.execute(
             """INSERT INTO answers
-               (id, interview_id, question_id, order_index, answer_text)
-               VALUES (:id, :interview_id, :question_id, :order_index, :answer_text)""",
+               (id, interview_id, question_id, order_index, answer_text, audio_file_path)
+               VALUES (:id, :interview_id, :question_id, :order_index,
+                       :answer_text, :audio_file_path)""",
             row,
         )
     return row

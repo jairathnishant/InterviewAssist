@@ -166,6 +166,7 @@ Rules:
 - No two questions may cover the same topic or skill area.
 - Tailor every question to the candidate's resume where relevant.
 - Questions 1-4 are technical, 5-6 are project-based, 7-8 are behavioural, 9 is a coding/analytical problem.
+- Q9 (coding) must be basic-to-intermediate difficulty only — a strong candidate should be able to describe their full approach in writing within 10 minutes. No system design or complex algorithm questions.
 
 Return a JSON array of exactly 9 objects, one per question, in order:
 [

@@ -1,16 +1,45 @@
 {% extends "base.html" %}
 {% block title %}Question {{ question_number }} of {{ total_questions }} — InterviewAssist{% endblock %}
 
+{% block header_right %}
+<div class="ml-auto flex items-center gap-2 bg-blue-700 rounded-lg px-3 py-1">
+  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-blue-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+  </svg>
+  <span id="timer-display" class="text-white font-mono font-semibold text-sm">30:00</span>
+</div>
+{% endblock %}
+
 {% block content %}
+
+{# Question pill navigation #}
+<div class="flex items-center gap-1.5 mb-5 flex-wrap">
+  {% for i in range(1, total_questions + 1) %}
+    {% set idx = i - 1 %}
+    {% if i == question_number %}
+      <a href="/c/{{ interview.token }}/q/{{ i }}"
+         class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold bg-blue-600 text-white ring-2 ring-blue-300">
+        {{ i }}
+      </a>
+    {% elif idx in answered_indices %}
+      <a href="/c/{{ interview.token }}/q/{{ i }}"
+         class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold bg-green-500 text-white hover:bg-green-600 transition-colors">
+        {{ i }}
+      </a>
+    {% else %}
+      <a href="/c/{{ interview.token }}/q/{{ i }}"
+         class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold bg-gray-200 text-gray-600 hover:bg-gray-300 transition-colors">
+        {{ i }}
+      </a>
+    {% endif %}
+  {% endfor %}
+  <span class="ml-2 text-xs text-gray-400">{{ answered_indices | length }} of {{ total_questions }} answered</span>
+</div>
 
 {# Progress bar #}
 <div class="mb-6">
-  <div class="flex justify-between text-xs text-gray-500 mb-1">
-    <span>Question {{ question_number }} of {{ total_questions }}</span>
-    <span>{{ progress_pct }}% complete</span>
-  </div>
-  <div class="w-full bg-gray-200 rounded-full h-2">
-    <div class="bg-blue-500 h-2 rounded-full transition-all" style="width: {{ progress_pct }}%"></div>
+  <div class="w-full bg-gray-200 rounded-full h-1.5">
+    <div class="bg-blue-500 h-1.5 rounded-full transition-all" style="width: {{ progress_pct }}%"></div>
   </div>
 </div>
 
@@ -37,57 +66,413 @@
 </div>
 {% endif %}
 
-{# Answer form #}
+{# ── Answer form ──────────────────────────────────────────────────────────── #}
 <form method="post" action="/c/{{ interview.token }}/q/{{ question_number }}" id="answer-form">
-  <div class="mb-4">
-    <label class="block text-sm font-medium text-gray-700 mb-2">Your Answer</label>
-    <textarea name="answer_text" rows="8" required
-      placeholder="Type your answer here..."
-      class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
-      id="answer-textarea"></textarea>
-    <p class="text-xs text-gray-400 mt-1" id="char-count">0 characters</p>
+
+{% if question.type == 'coding' %}
+  {# ── Coding question: plain textarea ─────────────────────────────────── #}
+  <div class="bg-white border border-gray-200 rounded-xl p-6 shadow-sm mb-4">
+    <p class="text-sm font-medium text-gray-700 mb-2">Your Answer
+      <span class="text-xs text-gray-400 font-normal ml-1">— describe your approach, write pseudocode, or actual code</span>
+    </p>
+    <textarea name="answer_text" id="answer-textarea" rows="10" required
+      placeholder="Write your solution here..."
+      class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y">{{ existing_answer.answer_text if existing_answer else '' }}</textarea>
+    <p class="text-xs text-gray-400 mt-1" id="char-count">
+      {{ existing_answer.answer_text | length if existing_answer else 0 }} characters
+    </p>
+  </div>
+  <button type="submit" id="submit-btn"
+    class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg transition-colors">
+    {% if question_number < total_questions %}Submit Answer &amp; Continue &rarr;
+    {% else %}Submit &amp; Finish &#10003;{% endif %}
+  </button>
+
+{% else %}
+  {# ── All other questions: audio recorder ─────────────────────────────── #}
+  <input type="hidden" name="answer_text" id="answer-textarea"
+    value="{{ existing_answer.answer_text if existing_answer else '' }}" />
+
+  <div id="mic-error" class="hidden bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 mb-4 text-sm">
+    Microphone access was denied. Please allow mic access in your browser settings and reload the page.
+  </div>
+
+  <div class="bg-white border border-gray-200 rounded-xl p-6 shadow-sm mb-4">
+    <p class="text-sm font-medium text-gray-700 mb-4">Your Answer</p>
+
+    {# idle #}
+    <div id="state-idle" class="flex flex-col items-center gap-4 py-6">
+      <button type="button" id="btn-record"
+        class="w-20 h-20 rounded-full bg-blue-600 hover:bg-blue-700 flex items-center justify-center shadow-lg transition-colors focus:outline-none focus:ring-4 focus:ring-blue-300">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-9 w-9 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4M12 3a4 4 0 014 4v4a4 4 0 01-8 0V7a4 4 0 014-4z"/>
+        </svg>
+      </button>
+      <p class="text-sm text-gray-500">Click to start recording your answer</p>
+    </div>
+
+    {# recording #}
+    <div id="state-recording" class="hidden flex-col items-center gap-4">
+      <div class="flex items-center gap-3">
+        <span class="inline-block w-3 h-3 rounded-full bg-red-500 animate-pulse"></span>
+        <span class="text-red-600 font-semibold text-sm tracking-wide">RECORDING</span>
+        <span id="rec-elapsed" class="font-mono text-gray-700 text-sm">0:00</span>
+      </div>
+      <canvas id="waveform" width="480" height="72"
+        class="w-full rounded-lg bg-gray-50 border border-gray-100"></canvas>
+      <button type="button" id="btn-stop"
+        class="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white font-semibold px-6 py-2.5 rounded-lg transition-colors">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+          <rect x="4" y="4" width="12" height="12" rx="1"/>
+        </svg>
+        Stop Recording
+      </button>
+    </div>
+
+    {# review #}
+    <div id="state-review" class="hidden flex-col gap-4">
+      <div class="flex items-center gap-2 text-green-600 text-sm font-medium">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+        </svg>
+        <span id="review-label">Recording complete — review your answer below</span>
+      </div>
+      {# always present; src set by JS from IndexedDB or left empty #}
+      <audio id="playback" controls class="w-full"></audio>
+      <p id="no-audio-note" class="hidden text-xs text-gray-400 text-center">
+        Audio not available for replay (page was reloaded). Re-record if you'd like to change your answer.
+      </p>
+      <button type="button" id="btn-rerecord"
+        class="text-sm text-gray-500 hover:text-gray-700 underline text-center">
+        ↩ Re-record
+      </button>
+    </div>
   </div>
 
   <button type="submit" id="submit-btn"
-    class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg transition-colors">
-    {% if question_number < total_questions %}
-      Submit &amp; Next Question &rarr;
-    {% else %}
-      Submit &amp; Finish &#10003;
-    {% endif %}
+    class="{% if not existing_answer %}hidden {% endif %}w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg transition-colors">
+    {% if question_number < total_questions %}Submit Answer &amp; Continue &rarr;
+    {% else %}Submit &amp; Finish &#10003;{% endif %}
   </button>
+{% endif %}
+
 </form>
 
-{% if question_number < total_questions %}
-<p class="text-center text-xs text-gray-400 mt-3">
-  The next question will be generated after you submit. This takes a few seconds.
-</p>
-{% else %}
+{# Previous / Next navigation #}
+<div class="flex gap-3 mt-4">
+  {% if question_number > 1 %}
+  <a href="/c/{{ interview.token }}/q/{{ question_number - 1 }}"
+     class="flex-1 text-center border border-gray-300 text-gray-600 font-medium py-2.5 rounded-lg hover:bg-gray-100 transition-colors text-sm">
+    &larr; Previous
+  </a>
+  {% else %}
+  <div class="flex-1"></div>
+  {% endif %}
+
+  {% if question_number < total_questions %}
+  <a href="/c/{{ interview.token }}/q/{{ question_number + 1 }}"
+     class="flex-1 text-center border border-gray-300 text-gray-600 font-medium py-2.5 rounded-lg hover:bg-gray-100 transition-colors text-sm">
+    Next &rarr;
+  </a>
+  {% else %}
+  <div class="flex-1"></div>
+  {% endif %}
+</div>
+
+{# ── Finish interview early ───────────────────────────────────────────────── #}
+<div class="mt-8 border-t border-gray-200 pt-6">
+  <p class="text-xs text-gray-400 text-center mb-3">
+    Answered all you can? You can submit the interview now — unanswered questions will be skipped.
+  </p>
+  <form method="post" action="/c/{{ interview.token }}/finish" id="finish-form">
+    <button type="submit"
+      onclick="return confirm('Submit the interview now? Any unanswered questions will be skipped.')"
+      class="w-full border border-gray-300 text-gray-500 hover:bg-gray-50 font-medium py-2.5 rounded-lg transition-colors text-sm">
+      Finish Interview
+    </button>
+  </form>
+</div>
+
+{% if question_number == total_questions %}
 <p class="text-center text-xs text-gray-400 mt-3">
   After submitting, your answers will be scored automatically. This takes about 20 seconds.
 </p>
 {% endif %}
 
 <script>
-const textarea = document.getElementById('answer-textarea');
-const charCount = document.getElementById('char-count');
+// \u2500\u2500 Proctoring: disable copy / paste / cut / right-click \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+(function() {
+  const BLOCKED_KEYS = new Set(['c', 'v', 'x', 'a']);
 
-textarea.addEventListener('input', function() {
-  const len = this.value.length;
-  charCount.textContent = len + ' character' + (len !== 1 ? 's' : '');
-  charCount.classList.toggle('text-red-400', len < 20);
-  charCount.classList.toggle('text-gray-400', len >= 20);
-});
+  document.addEventListener('copy',        e => e.preventDefault());
+  document.addEventListener('cut',         e => e.preventDefault());
+  document.addEventListener('contextmenu', e => e.preventDefault());
 
-document.getElementById('answer-form').addEventListener('submit', function() {
-  const btn = document.getElementById('submit-btn');
-  btn.disabled = true;
-  {% if question_number < total_questions %}
-  btn.textContent = 'Preparing next question\u2026';
-  {% else %}
-  btn.textContent = 'Scoring your interview\u2026';
-  {% endif %}
-  btn.classList.add('opacity-75', 'cursor-not-allowed');
-});
+  // Block paste everywhere except the answer textarea (typing own answer is fine,
+  // but pasting from clipboard is not allowed)
+  document.addEventListener('paste', e => e.preventDefault());
+
+  document.addEventListener('keydown', function(e) {
+    const ctrl = e.ctrlKey || e.metaKey;
+    if (ctrl && BLOCKED_KEYS.has(e.key.toLowerCase())) {
+      e.preventDefault();
+    }
+  });
+})();
+
+// \u2500\u2500 Coding question: character counter \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+{% if question.type == 'coding' %}
+(function() {
+  const ta = document.getElementById('answer-textarea');
+  const cc = document.getElementById('char-count');
+  if (!ta || !cc) return;
+  ta.addEventListener('input', function() {
+    const len = this.value.length;
+    cc.textContent = len + ' character' + (len !== 1 ? 's' : '');
+    cc.classList.toggle('text-red-400', len < 20);
+    cc.classList.toggle('text-gray-400', len >= 20);
+  });
+  document.getElementById('answer-form').addEventListener('submit', function() {
+    const btn = document.getElementById('submit-btn');
+    btn.disabled = true;
+    btn.textContent = '{% if question_number < total_questions %}Saving answer\u2026{% else %}Scoring your interview\u2026{% endif %}';
+    btn.classList.add('opacity-75', 'cursor-not-allowed');
+  });
+})();
+{% endif %}
+
+// \u2500\u2500 Audio recorder \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+{% if question.type != 'coding' %}
+(function () {
+  const MAX_SEC   = 120; // 2-minute limit
+  const BLOB_KEY  = 'ia_blob_{{ interview.token }}_q{{ question_number }}';
+  const HAS_SAVED = {{ 'true' if existing_answer else 'false' }};
+
+  let mediaRecorder = null, stream = null, analyser = null;
+  let audioChunks = [], animFrameId = null, timerInterval = null, elapsedSec = 0;
+
+  const $ = id => document.getElementById(id);
+
+  // \u2500\u2500 IndexedDB helpers \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+  function openDB() {
+    return new Promise((res, rej) => {
+      const r = indexedDB.open('ia_audio', 1);
+      r.onupgradeneeded = e => e.target.result.createObjectStore('blobs');
+      r.onsuccess = e => res(e.target.result);
+      r.onerror   = rej;
+    });
+  }
+  async function saveBlob(blob) {
+    const db = await openDB();
+    return new Promise((res, rej) => {
+      const tx = db.transaction('blobs', 'readwrite');
+      tx.objectStore('blobs').put(blob, BLOB_KEY);
+      tx.oncomplete = res; tx.onerror = rej;
+    });
+  }
+  async function loadBlob() {
+    const db = await openDB();
+    return new Promise((res, rej) => {
+      const tx = db.transaction('blobs', 'readonly');
+      const r  = tx.objectStore('blobs').get(BLOB_KEY);
+      r.onsuccess = e => res(e.target.result || null);
+      r.onerror   = rej;
+    });
+  }
+  async function deleteBlob() {
+    const db = await openDB();
+    return new Promise((res, rej) => {
+      const tx = db.transaction('blobs', 'readwrite');
+      tx.objectStore('blobs').delete(BLOB_KEY);
+      tx.oncomplete = res; tx.onerror = rej;
+    });
+  }
+
+  // \u2500\u2500 State machine \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+  function showState(name) {
+    ['idle', 'recording', 'review'].forEach(s => {
+      const el = $('state-' + s);
+      el.classList.toggle('hidden', s !== name);
+      el.classList.toggle('flex',   s === name);
+    });
+    $('submit-btn').classList.toggle('hidden', name !== 'review');
+  }
+
+  // \u2500\u2500 Waveform \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+  function startWaveform() {
+    const canvas = $('waveform');
+    const ctx    = canvas.getContext('2d');
+    const buf    = new Uint8Array(analyser.frequencyBinCount);
+    function draw() {
+      animFrameId = requestAnimationFrame(draw);
+      analyser.getByteFrequencyData(buf);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const bw = (canvas.width / buf.length) * 2;
+      buf.forEach((v, i) => {
+        const h = (v / 255) * canvas.height;
+        ctx.fillStyle = elapsedSec >= 105 ? '#ef4444' : '#3b82f6';
+        ctx.fillRect(i * (bw + 1), canvas.height - h, bw, h);
+      });
+    }
+    draw();
+  }
+
+  // \u2500\u2500 Start recording \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+  $('btn-record').addEventListener('click', async () => {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      $('mic-error').classList.remove('hidden');
+      return;
+    }
+    const audioCtx = new AudioContext();
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 128;
+    audioCtx.createMediaStreamSource(stream).connect(analyser);
+
+    audioChunks = [];
+    mediaRecorder = new MediaRecorder(stream);
+    mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+    mediaRecorder.onstop = onStop;
+    mediaRecorder.start();
+
+    elapsedSec = 0;
+    timerInterval = setInterval(() => {
+      elapsedSec++;
+      const remaining = MAX_SEC - elapsedSec;
+      const m = String(Math.floor(elapsedSec / 60)).padStart(2, '0');
+      const s = String(elapsedSec % 60).padStart(2, '0');
+      const el = $('rec-elapsed');
+      el.textContent = m + ':' + s + (remaining <= 30 ? '  (' + remaining + 's left)' : '');
+      if (remaining <= 30) el.classList.add('text-red-600', 'font-bold');
+      if (elapsedSec >= MAX_SEC) stopRecording(); // auto-stop at 2 min
+    }, 1000);
+
+    startWaveform();
+    showState('recording');
+  });
+
+  // \u2500\u2500 Stop recording \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+  function stopRecording() {
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+    stream.getTracks().forEach(t => t.stop());
+    clearInterval(timerInterval);
+    cancelAnimationFrame(animFrameId);
+  }
+  $('btn-stop').addEventListener('click', stopRecording);
+
+  async function onStop() {
+    const blob = new Blob(audioChunks, { type: 'audio/webm' });
+    await saveBlob(blob);                          // persist across navigation
+    $('playback').src = URL.createObjectURL(blob);
+    $('no-audio-note').classList.add('hidden');
+    $('review-label').textContent = 'Recording complete \u2014 review your answer below';
+    $('answer-textarea').value = '[audio answer \u2014 transcription pending]';
+    showState('review');
+  }
+
+  // \u2500\u2500 Re-record \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+  $('btn-rerecord').addEventListener('click', async () => {
+    await deleteBlob();
+    $('answer-textarea').value = '';
+    $('playback').src = '';
+    showState('idle');
+  });
+
+  // \u2500\u2500 Form submit: attach audio blob and POST via fetch \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+  $('answer-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = $('submit-btn');
+    btn.disabled = true;
+    btn.textContent = '{% if question_number < total_questions %}Saving answer\u2026{% else %}Scoring your interview\u2026{% endif %}';
+    btn.classList.add('opacity-75', 'cursor-not-allowed');
+
+    const formData = new FormData();
+    const blob = await loadBlob();
+    if (blob) {
+      formData.append('audio_file', new File([blob], 'answer.webm', { type: 'audio/webm' }));
+    } else {
+      formData.append('answer_text', $('answer-textarea').value);
+    }
+
+    try {
+      const resp = await fetch($('answer-form').action, { method: 'POST', body: formData });
+      window.location.href = resp.url;   // follow the 303 redirect
+    } catch {
+      btn.disabled = false;
+      btn.textContent = 'Error \u2014 tap to retry';
+      btn.classList.remove('opacity-75', 'cursor-not-allowed');
+    }
+  });
+
+  // \u2500\u2500 Initialise: restore blob from IndexedDB or fall back to server state \u2500\u2500
+  (async () => {
+    const blob = await loadBlob();
+    if (blob) {
+      $('playback').src = URL.createObjectURL(blob);
+      $('review-label').textContent = 'Recording complete \u2014 review your answer below';
+      $('no-audio-note').classList.add('hidden');
+      $('answer-textarea').value = '[audio answer \u2014 transcription pending]';
+      showState('review');
+    } else if (HAS_SAVED) {
+      // Answer saved to DB but blob no longer in IndexedDB (e.g. different device/browser)
+      $('playback').removeAttribute('src');
+      $('no-audio-note').classList.remove('hidden');
+      $('review-label').textContent = 'Answer already submitted';
+      showState('review');
+    } else {
+      showState('idle');
+    }
+  })();
+})();
+{% endif %}
+
+// \u2500\u2500 30-minute countdown timer (persists across questions via localStorage) \u2500\u2500\u2500
+(function() {
+  const TOKEN      = "{{ interview.token }}";
+  const DURATION   = 30 * 60; // seconds
+  const STORAGE_KEY = 'ia_timer_' + TOKEN;
+
+  const display = document.getElementById('timer-display');
+  const form    = document.getElementById('answer-form');
+
+  // Initialise or restore start time
+  let startTime = parseInt(localStorage.getItem(STORAGE_KEY), 10);
+  if (!startTime) {
+    startTime = Date.now();
+    localStorage.setItem(STORAGE_KEY, startTime);
+  }
+
+  function tick() {
+    const elapsed   = Math.floor((Date.now() - startTime) / 1000);
+    const remaining = Math.max(DURATION - elapsed, 0);
+    const mins = Math.floor(remaining / 60);
+    const secs = remaining % 60;
+
+    display.textContent = String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
+
+    // Turn red in last 5 minutes
+    if (remaining <= 300) {
+      display.classList.add('text-red-300');
+      display.closest('div').classList.add('bg-red-700');
+      display.closest('div').classList.remove('bg-blue-700');
+    }
+
+    if (remaining === 0) {
+      localStorage.removeItem(STORAGE_KEY);
+      const hiddenAnswer = document.getElementById('answer-textarea');
+      if (!hiddenAnswer.value.trim()) {
+        hiddenAnswer.value = '[Time expired \u2014 no answer submitted]';
+      }
+      form.submit();
+      return;
+    }
+
+    setTimeout(tick, 1000);
+  }
+
+  tick();
+})();
 </script>
 {% endblock %}
