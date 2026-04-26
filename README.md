@@ -53,8 +53,26 @@ An AI-powered async interview platform for technical roles. Interviewers set up 
 | Backend | Python 3.x, FastAPI, Uvicorn |
 | Frontend | Jinja2 HTML templates, Tailwind CSS (CDN) |
 | Database | SQLite (via Python `sqlite3`) |
-| LLM | OpenRouter API (free-tier models with automatic fallback) |
+| LLM | OpenRouter API — primary model `openai/gpt-oss-120b:free` with 6 fallbacks |
 | Audio | Browser `MediaRecorder` API + IndexedDB |
+
+### LLM Model Details
+
+The app uses **`openai/gpt-oss-120b`** — OpenAI's 120B open-source model served via OpenRouter — as the primary model for both question generation and answer scoring. It is tried first on every request.
+
+If the primary model is unavailable (rate-limited or no endpoints), the app automatically falls back through this list in order:
+
+| Priority | Model | Size |
+|---|---|---|
+| 1 | `openai/gpt-oss-120b:free` | 120B — primary |
+| 2 | `meta-llama/llama-3.3-70b-instruct:free` | 70B |
+| 3 | `nousresearch/hermes-3-llama-3.1-405b:free` | 405B |
+| 4 | `google/gemma-4-31b-it:free` | 31B |
+| 5 | `google/gemma-3-27b-it:free` | 27B |
+| 6 | `nvidia/nemotron-3-super-120b-a12b:free` | 120B |
+| 7 | `minimax/minimax-m2.5:free` | — |
+
+All models are **free tier** ($0 cost) but subject to availability. The server log shows which model succeeded for each request. To guarantee availability, replace the list with a paid model such as `openai/gpt-4o-mini` (~$0.001 per interview).
 
 ---
 
